@@ -31,21 +31,27 @@ int CAddrInfo::GetBucketPosition(const uint256 &nKey, bool fNew, int nBucket) co
 
 bool CAddrInfo::IsTerrible(int64_t nNow) const
 {
+    LogPrint(BCLog::CONFUNDO, "#13128|IsTerrible|InfoCheck|%d|%d|%d|%d|%d\n", nNow, nLastTry, nTime, nLastSuccess, nAttempts);
     if (nLastTry && nLastTry >= nNow - 60) // never remove things tried in the last minute
+        LogPrint(BCLog::CONFUNDO, "#13128|IsTerrible|Result|False");
         return false;
 
     if (nTime > nNow + 10 * 60) // came in a flying DeLorean
+        LogPrint(BCLog::CONFUNDO, "#13128|IsTerrible|Result|True");
         return true;
 
     if (nTime == 0 || nNow - nTime > ADDRMAN_HORIZON_DAYS * 24 * 60 * 60) // not seen in recent history
+        LogPrint(BCLog::CONFUNDO, "#13128|IsTerrible|Result|True");
         return true;
 
     if (nLastSuccess == 0 && nAttempts >= ADDRMAN_RETRIES) // tried N times and never a success
+        LogPrint(BCLog::CONFUNDO, "#13128|IsTerrible|Result|True");
         return true;
 
     if (nNow - nLastSuccess > ADDRMAN_MIN_FAIL_DAYS * 24 * 60 * 60 && nAttempts >= ADDRMAN_MAX_FAILURES) // N successive failures in the last week
+        LogPrint(BCLog::CONFUNDO, "#13128|IsTerrible|Result|True");
         return true;
-
+    LogPrint(BCLog::CONFUNDO, "#13128|IsTerrible|Result|False");
     return false;
 }
 
@@ -121,6 +127,7 @@ void CAddrMan::Delete(int nId)
     mapAddr.erase(info);
     mapInfo.erase(nId);
     nNew--;
+    LogPrint(BCLog::CONFUNDO, "#57446|Delete|NEW--|%s|%d\n", info.ToString(), nNew);
 }
 
 void CAddrMan::ClearNew(int nUBucket, int nUBucketPos)
@@ -132,10 +139,13 @@ void CAddrMan::ClearNew(int nUBucket, int nUBucketPos)
         assert(infoDelete.nRefCount > 0);
         infoDelete.nRefCount--;
         vvNew[nUBucket][nUBucketPos] = -1;
+        LogPrint(BCLog::CONFUNDO, "#26273|ClearNew|NEW--|%s|%d|%d|%d\n", infoDelete.ToString(), nUBucket, nUBucketPos, infoDelete.nRefCount);
         if (infoDelete.nRefCount == 0) {
             Delete(nIdDelete);
+            LogPrint(BCLog::CONFUNDO, "#26705|ClearNew|NoMore|%s|%d\n", infoDelete.ToString(), infoDelete.nRefCount);
         }
     }
+
 }
 
 void CAddrMan::MakeTried(CAddrInfo& info, int nId)
@@ -146,10 +156,11 @@ void CAddrMan::MakeTried(CAddrInfo& info, int nId)
         if (vvNew[bucket][pos] == nId) {
             vvNew[bucket][pos] = -1;
             info.nRefCount--;
+            LogPrint(BCLog::CONFUNDO, "#95318|MakeTried|NEW--|%s|%d|%d|%d\n", info.ToString(), bucket, pos, info.nRefCount);
         }
     }
     nNew--;
-
+    LogPrint(BCLog::CONFUNDO, "#21608|MakeTried|NEW--|%s|%d\n", info.ToString(), nNew);
     assert(info.nRefCount == 0);
 
     // which tried bucket to move the entry to
@@ -162,7 +173,7 @@ void CAddrMan::MakeTried(CAddrInfo& info, int nId)
         int nIdEvict = vvTried[nKBucket][nKBucketPos];
         assert(mapInfo.count(nIdEvict) == 1);
         CAddrInfo& infoOld = mapInfo[nIdEvict];
-
+        LogPrint(BCLog::CONFUNDO, "#39372|MakeTried|Collision|%s|%s|%d|%d\n", infoOld.ToString(), info.ToString(), nKBucket, nKBucketPos);
         // Remove the to-be-evicted item from the tried set.
         infoOld.fInTried = false;
         vvTried[nKBucket][nKBucketPos] = -1;
@@ -178,12 +189,14 @@ void CAddrMan::MakeTried(CAddrInfo& info, int nId)
         infoOld.nRefCount = 1;
         vvNew[nUBucket][nUBucketPos] = nIdEvict;
         nNew++;
+        LogPrint(BCLog::CONFUNDO, "#44378|MakeTried|Eviction|%s|%d|%d|%d|%d|%d|%d\n", infoOld.ToString(), nKBucket, nKBucketPos, nTried, nUBucket, nUBucketPos, nNew);
     }
     assert(vvTried[nKBucket][nKBucketPos] == -1);
 
     vvTried[nKBucket][nKBucketPos] = nId;
     nTried++;
     info.fInTried = true;
+    LogPrint(BCLog::CONFUNDO, "#43477|MakeTried|TRIED++|%s|%d|%d|%d\n", info.ToString(), nKBucket, nKBucketPos, nTried);
 }
 
 void CAddrMan::Good_(const CService& addr, bool test_before_evict, int64_t nTime)
@@ -210,7 +223,7 @@ void CAddrMan::Good_(const CService& addr, bool test_before_evict, int64_t nTime
     info.nAttempts = 0;
     // nTime is not updated here, to avoid leaking information about
     // currently-connected peers.
-
+    LogPrint(BCLog::CONFUNDO, "#39432|Good_|CheckState|%s|%d|%s|%s\n", info.ToString(), nTime, test_before_evict ? "True" : "False", info.fInTried ? "True" : "False");
     // if it is already in the tried set, don't do anything else
     if (info.fInTried)
         return;
@@ -223,6 +236,7 @@ void CAddrMan::Good_(const CService& addr, bool test_before_evict, int64_t nTime
         int nBpos = info.GetBucketPosition(nKey, true, nB);
         if (vvNew[nB][nBpos] == nId) {
             nUBucket = nB;
+            LogPrint(BCLog::CONFUNDO, "#90865|Good_|NewLocation|%s|%d|%d\n", info.ToString(), nB, nBpos);
             break;
         }
     }
@@ -241,12 +255,14 @@ void CAddrMan::Good_(const CService& addr, bool test_before_evict, int64_t nTime
         // Output the entry we'd be colliding with, for debugging purposes
         auto colliding_entry = mapInfo.find(vvTried[tried_bucket][tried_bucket_pos]);
         LogPrint(BCLog::ADDRMAN, "Collision inserting element into tried table (%s), moving %s to m_tried_collisions=%d\n", colliding_entry != mapInfo.end() ? colliding_entry->second.ToString() : "", addr.ToString(), m_tried_collisions.size());
+        LogPrint(BCLog::CONFUNDO, "#70280|Good_|Collision|%s|%s|%d\n", colliding_entry != mapInfo.end() ? colliding_entry->second.ToString() : "", addr.ToString(), m_tried_collisions.size());
         if (m_tried_collisions.size() < ADDRMAN_SET_TRIED_COLLISION_SIZE) {
             m_tried_collisions.insert(nId);
+            LogPrint(BCLog::CONFUNDO, "#18565|Good_|m_tried_collisions++|%s|%d\n", addr.ToString(), m_tried_collisions.size());
         }
     } else {
         LogPrint(BCLog::ADDRMAN, "Moving %s to tried\n", addr.ToString());
-
+        LogPrint(BCLog::CONFUNDO, "#85810|Good_|NoCollision&MakeTried|%s|%d|%d\n", addr.ToString(), tried_bucket, tried_bucket_pos);
         // move nId to the tried tables
         MakeTried(info, nId);
     }
@@ -265,7 +281,7 @@ bool CAddrMan::Add_(const CAddress& addr, const CNetAddr& source, int64_t nTimeP
     if (addr == source) {
         nTimePenalty = 0;
     }
-
+    LogPrint(BCLog::CONFUNDO, "#26390|Add_|CallingInfo|%s\n", addr.ToString());
     if (pinfo) {
         // periodically update nTime
         bool fCurrentlyOnline = (GetAdjustedTime() - addr.nTime < 24 * 60 * 60);
@@ -275,7 +291,7 @@ bool CAddrMan::Add_(const CAddress& addr, const CNetAddr& source, int64_t nTimeP
 
         // add services
         pinfo->nServices = ServiceFlags(pinfo->nServices | addr.nServices);
-
+        LogPrint(BCLog::CONFUNDO, "#39528|Add_|Existing|%s|%d|%s|%s|%d\n", addr.ToString(), pinfo->nTime, (!addr.nTime || (pinfo->nTime && addr.nTime <= pinfo->nTime)) ? "True" : "False", pinfo->fInTried ? "True" : "False", pinfo->nRefCount);
         // do not update if no new information is present
         if (!addr.nTime || (pinfo->nTime && addr.nTime <= pinfo->nTime))
             return false;
@@ -294,34 +310,41 @@ bool CAddrMan::Add_(const CAddress& addr, const CNetAddr& source, int64_t nTimeP
             nFactor *= 2;
         if (nFactor > 1 && (insecure_rand.randrange(nFactor) != 0))
             return false;
+        LogPrint(BCLog::CONFUNDO, "#80489|Add_|PassAll|%s\n", addr.ToString());
     } else {
         pinfo = Create(addr, source, &nId);
         pinfo->nTime = std::max((int64_t)0, (int64_t)pinfo->nTime - nTimePenalty);
         nNew++;
         fNew = true;
+        LogPrint(BCLog::CONFUNDO, "#30012|Add_|NEW++|%s|%d|%d\n", addr.ToString(), pinfo->nTime, nNew);
     }
 
     int nUBucket = pinfo->GetNewBucket(nKey, source);
     int nUBucketPos = pinfo->GetBucketPosition(nKey, true, nUBucket);
+    LogPrint(BCLog::CONFUNDO, "#66760|Add_|NewLocation|%s|%d|%d|%d|%d\n", addr.ToString(), nUBucket, nUBucketPos, vvNew[nUBucket][nUBucketPos], nId);
     if (vvNew[nUBucket][nUBucketPos] != nId) {
         bool fInsert = vvNew[nUBucket][nUBucketPos] == -1;
         if (!fInsert) {
             CAddrInfo& infoExisting = mapInfo[vvNew[nUBucket][nUBucketPos]];
+            LogPrint(BCLog::CONFUNDO, "#90856|Add_|Replace?|%s|%s|%d|%d\n",  addr.ToString(), infoExisting.ToString(), infoExisting.nRefCount, pinfo->nRefCount);
             if (infoExisting.IsTerrible() || (infoExisting.nRefCount > 1 && pinfo->nRefCount == 0)) {
                 // Overwrite the existing new table entry.
                 fInsert = true;
             }
         }
+        LogPrint(BCLog::CONFUNDO, "#57663|Add_|Insert?|%s|%s\n", addr.ToString(), fInsert? "True" : "False");
         if (fInsert) {
             ClearNew(nUBucket, nUBucketPos);
             pinfo->nRefCount++;
             vvNew[nUBucket][nUBucketPos] = nId;
+            LogPrint(BCLog::CONFUNDO, "#80860|Add_|InsertNew|%s|%d|%d|%d|%d\n", addr.ToString(), nUBucket, nUBucketPos, nId, pinfo->nRefCount);
         } else {
             if (pinfo->nRefCount == 0) {
                 Delete(nId);
             }
         }
     }
+    LogPrint(BCLog::CONFUNDO, "#19094|Add_|Return|%s|%s\n", addr.ToString(), fNew ? "True" : "False");
     return fNew;
 }
 
@@ -616,3 +639,4 @@ CAddrInfo CAddrMan::SelectTriedCollision_()
 
     return mapInfo[id_old];
 }
+
